@@ -7,6 +7,12 @@ const bcrypt = require('bcryptjs');
 const cookieSession = require('cookie-session');
 
 const app = express();
+
+// Railway terminates HTTPS at its reverse proxy. Trust the first proxy hop so
+// Express correctly sees production requests as secure and cookie-session can
+// set/read the Secure authentication cookie.
+app.set('trust proxy', 1);
+
 const port = process.env.PORT || 5000;
 const mongoUri = process.env.MONGO_URI;
 
