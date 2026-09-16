@@ -182,15 +182,15 @@ const WhereImGoing: React.FC = () => {
       filename       = await uploadImage(b64);
     }
     return {
-      Destination: destination,
-      Date:        date,
-      Plans: {
+      destination,
+      date,
+      plans: {
         Activities:  { number: 0, activities: [] },
         Restaurants: { number: 0, restaurants: [] },
         Places:      { number: 0, places: [] },
         Hotels:      { number: 0, hotels: [] },
       },
-      Image: filename,
+      image: filename,
     };
   }
   async function addTrip(e: React.FormEvent) {

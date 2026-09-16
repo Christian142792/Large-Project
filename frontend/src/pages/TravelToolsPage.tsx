@@ -232,7 +232,34 @@ export default function TravelToolsPage({
     });
   };
 
-  const addFlight = () => {
+  const loadFlights = async (username: string) => {
+    try {
+      const response = await fetch(`/api/getflights/${username}`);
+      const data = await response.json();
+      if (!response.ok || data.status !== "Success") {
+        throw new Error(data.status || "Failed to load flights");
+      }
+
+      const savedFlights: Flight[] = (data.flights || []).map((flight: any, index: number) => ({
+        id: index + 1,
+        port1: flight.depart || "",
+        port1Code: flight.departcode || "",
+        port1time: flight.departtime || "",
+        port2: flight.arrive || "",
+        port2code: flight.arrivecode || "",
+        port2Time: flight.arrivetime || "",
+        boardingday: flight.boardingday || "",
+        imageCategory: flight.image || "City",
+      }));
+
+      setFlights(savedFlights);
+    } catch (error) {
+      console.error("Error loading flights:", error);
+    }
+  };
+
+  const addFlight = async () => {
+    if (!userData) return;
     if (
       !newFlight.port1 ||
       !newFlight.port1Code ||
@@ -246,17 +273,56 @@ export default function TravelToolsPage({
       return;
     }
 
-    const flightToAdd = {
-      ...newFlight,
-      id: flights.length > 0 ? Math.max(...flights.map(f => f.id)) + 1 : 1
-    };
-
-    setFlights([...flights, flightToAdd]);
-    closeAddFlightModal();
+    try {
+      const response = await fetch(`/api/addflight/${userData.username}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          port1: newFlight.port1,
+          port1code: newFlight.port1Code,
+          port1time: newFlight.port1time,
+          port2: newFlight.port2,
+          port2code: newFlight.port2code,
+          port2time: newFlight.port2Time,
+          boardingday: newFlight.boardingday,
+          image: newFlight.imageCategory,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.status !== "Success") {
+        throw new Error(data.status || "Failed to add flight");
+      }
+      await loadFlights(userData.username);
+      closeAddFlightModal();
+    } catch (error) {
+      console.error("Error adding flight:", error);
+      alert("Failed to save flight. Please try again.");
+    }
   };
 
-  const removeFlight = (id: number) => {
-    setFlights(flights.filter(flight => flight.id !== id));
+  const removeFlight = async (id: number) => {
+    if (!userData) return;
+    const flight = flights.find((item) => item.id === id);
+    if (!flight) return;
+
+    try {
+      const response = await fetch(`/api/deleteflight/${userData.username}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          port1code: flight.port1Code,
+          port2code: flight.port2code,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.status !== "Success") {
+        throw new Error(data.status || "Failed to delete flight");
+      }
+      await loadFlights(userData.username);
+      setActiveFlightId(null);
+    } catch (error) {
+      console.error("Error deleting flight:", error);
+    }
   };
 
   const getImageUrl = (category: string) => {
@@ -264,35 +330,33 @@ export default function TravelToolsPage({
     return foundCategory ? foundCategory.image : "/images/CityFlight.jpg";
   };
 
-  // let _ud: any = localStorage.getItem("user_data");
-  // let ud = JSON.parse(_ud);
-  // const username = ud?.username || "guest_user";
+  const rawUserData = localStorage.getItem("user_data");
+  const storedUser = rawUserData ? JSON.parse(rawUserData) : null;
+  const username = userData?.username || storedUser?.username || "";
 
   useEffect(() => {
-    // fetch or set user data
-    setTimeout(() => {
-      if (ud) {
-        setUserData({
-          name: ud.firstName,
-          username: ud.username,
-          email: ud.email,
-          profileimage: ud.profileimage,
-        });
-      }
-    }, 1000);
+    if (storedUser) {
+      setUserData({
+        name: storedUser.firstName,
+        username: storedUser.username,
+        email: storedUser.email,
+        profileimage: storedUser.profileimage,
+      });
+    }
   }, []);
 
-  // Fetch packing lists from the API
   useEffect(() => {
-    if (userData) {
-      const fetchData = async () => {
-        var data = await fetchPackingLists(userData.username, "");
-        if (data)
-          setDestinations(data.list.map((list: any) => ({ name: list.name })));
-      };
+    if (!userData) return;
 
-      fetchData();
-    }
+    const loadTravelTools = async () => {
+      const data = await fetchPackingLists(userData.username, "");
+      if (data?.list) {
+        setDestinations(data.list.map((list: any) => ({ name: list.name })));
+      }
+      await loadFlights(userData.username);
+    };
+
+    loadTravelTools();
   }, [userData]);
 
   const handlePackingItemChange = (index: number, value: string) => {
@@ -306,41 +370,8 @@ export default function TravelToolsPage({
   };
 
   const removePackingItem = (index: number) => {
-    const updatedItems = packingItems.filter((_, i) => i !== index);
-    setPackingItems(updatedItems);
+    setPackingItems(packingItems.filter((_, i) => i !== index));
   };
-
-  // Retrieve the username of the logged-in user
-  let _ud: any = localStorage.getItem("user_data");
-  let ud = JSON.parse(_ud);
-  const username = ud?.username || "guest_user"; // Fallback to "guest_user" if no username is found
-
-  useEffect(() => {
-    // fetch or set user data
-    setTimeout(() => {
-      if (ud) {
-        setUserData({
-          name: ud.firstName,
-          username: ud.username,
-          email: ud.email,
-          profileimage: ud.profileimage,
-        });
-      }
-    }, 1000);
-  }, []);
-
-  // Fetch packing lists from the API
-  useEffect(() => {
-    if (userData) {
-      const fetchData = async () => {
-        var data = await fetchPackingLists(userData.username, "");
-        if (data)
-          setDestinations(data.list.map((list: any) => ({ name: list.name })));
-      };
-
-      fetchData();
-    }
-  }, [userData]);
 
   const openModal = async (name: string) => {
     if (!userData) return;
@@ -392,8 +423,10 @@ export default function TravelToolsPage({
       });
       const data = await response.json();
       console.log("API Response (addtopacking):", data);
-      if (data.status === "Success") {
+      if (response.ok && data.status === "Success") {
         setIsEditing(false);
+        const refreshed = await fetchPackingLists(username, selectedPackingList);
+        if (refreshed?.list) setPackingItems(refreshed.list);
       } else {
         console.error("Failed to save packing list:", data.status);
       }
@@ -421,13 +454,12 @@ export default function TravelToolsPage({
         });
         const data = await response.json();
         console.log("API Response (addpackinglist):", data);
-        if (data.status === "Success") {
-          // Add the new destination to the state
-          setDestinations((prevDestinations) => [
-            ...prevDestinations,
-            { name: newDestinationName },
-          ]);
-          closeAddDestinationModal(); // Close the modal after adding
+        if (response.ok && data.status === "Success") {
+          const refreshed = await fetchPackingLists(username, "");
+          if (refreshed?.list) {
+            setDestinations(refreshed.list.map((list: any) => ({ name: list.name })));
+          }
+          closeAddDestinationModal();
         } else {
           console.error("Failed to add destination:", data.status);
         }
