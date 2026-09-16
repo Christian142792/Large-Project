@@ -34,24 +34,9 @@ function UserProf() {
             //     }
             // };
 
-            reader.onload = async () => {
+            reader.onload = () => {
                 if (reader.result) {
-                    const base64Image = reader.result.toString();
-                    const image = {
-                        image: base64Image
-                    };
-                    const response = await fetch('https://ohtheplacesyoullgo.space/api/upload', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify(image),
-                    });
-
-                    const res = JSON.parse(await response.text());
-                    if (res.filename != "") {
-                        setNewProfileImage("https://ohtheplacesyoullgo.space/images/" + res.filename);
-                    }
+                    setNewProfileImage(reader.result.toString());
                 }
             };
 
@@ -60,7 +45,7 @@ function UserProf() {
     };
 
     const saveProfileImage = async () => {
-        const response = await fetch(`https://ohtheplacesyoullgo.space/api/updateprofileimage/${userData.username}`, {
+        const response = await fetch(`/api/updateprofileimage/${userData.username}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -122,6 +107,7 @@ function UserProf() {
                             <button
                                 className="logout-button"
                                 onClick={() => {
+                                    fetch('/api/logout', { method: 'POST' }).catch(() => {});
                                     localStorage.clear();
                                 }}
                             >

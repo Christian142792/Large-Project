@@ -108,7 +108,7 @@ const WhereImGoing: React.FC = () => {
   // 5) GET trips (409 → empty array)
   async function getTrips(user: string): Promise<Trip[]> {
     const resp = await fetch(
-      `https://ohtheplacesyoullgo.space/api/gettrips/${user}`,
+      `/api/gettrips/${user}`,
       { headers: { "Content-Type": "application/json" } }
     );
     const text = await resp.text();
@@ -222,7 +222,7 @@ const WhereImGoing: React.FC = () => {
     try {
       const payload = await formatNewTripPayload();
       const resp = await fetch(
-        `https://ohtheplacesyoullgo.space/api/addtrip/${userData.username}`,
+        `/api/addtrip/${userData.username}`,
         {
           method:  "PUT",
           headers: { "Content-Type": "application/json" },
@@ -250,7 +250,7 @@ const WhereImGoing: React.FC = () => {
     try {
       const payload = { destination: dst, date: dt };
       const resp = await fetch(
-        `https://ohtheplacesyoullgo.space/api/deletetrip/${userData.username}`,
+        `/api/deletetrip/${userData.username}`,
         {
           method:  "DELETE",
           headers: { "Content-Type": "application/json" },
@@ -291,7 +291,7 @@ const WhereImGoing: React.FC = () => {
         newimage:     imgUrl,
       };
       const resp = await fetch(
-        `https://ohtheplacesyoullgo.space/api/edittrip/${userData.username}`,
+        `/api/edittrip/${userData.username}`,
         {
           method:  "PUT",
           headers: { "Content-Type": "application/json" },
@@ -348,7 +348,7 @@ const WhereImGoing: React.FC = () => {
       newimage:    old.Image,
     };
     const resp = await fetch(
-      `https://ohtheplacesyoullgo.space/api/edittrip/${userData.username}`,
+      `/api/edittrip/${userData.username}`,
       {
         method:  "PUT",
         headers: { "Content-Type": "application/json" },

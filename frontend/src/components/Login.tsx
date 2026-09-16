@@ -13,7 +13,7 @@ function Login() {
     const js = JSON.stringify(obj);
 
     try {
-      const response = await fetch("https://ohtheplacesyoullgo.space/api/login", {
+      const response = await fetch("/api/login", {
         method: "POST",
         body: js,
         headers: { "Content-Type": "application/json" },

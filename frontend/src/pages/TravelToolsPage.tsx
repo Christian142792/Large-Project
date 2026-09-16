@@ -344,7 +344,7 @@ export default function TravelToolsPage({
 
   const openModal = async (name: string) => {
     try {
-      const response = await fetch(`https://ohtheplacesyoullgo.space/api/getlist/${userData.username}`, {
+      const response = await fetch(`/api/getlist/${userData.username}`, {
         method: "PUT",
         body: JSON.stringify({ name }),
         headers: { "Content-Type": "application/json" },
@@ -381,7 +381,7 @@ export default function TravelToolsPage({
     }
 
     try {
-      const response = await fetch(`https://ohtheplacesyoullgo.space/api/addtopacking/${username}`, {
+      const response = await fetch(`/api/addtopacking/${username}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -413,7 +413,7 @@ export default function TravelToolsPage({
   const addDestination = async () => {
     if (newDestinationName.trim() !== "") {
       try {
-        const response = await fetch(`https://ohtheplacesyoullgo.space/api/addpackinglist/${username}`, {
+        const response = await fetch(`/api/addpackinglist/${username}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: newDestinationName }),
@@ -440,7 +440,7 @@ export default function TravelToolsPage({
 
   const fetchPackingLists = async (_username: string, name: string) => {
     try {
-      const response = await fetch(`https://ohtheplacesyoullgo.space/api/getlist/${_username}`, {
+      const response = await fetch(`/api/getlist/${_username}`, {
         method: "PUT",
         body: JSON.stringify({ name }),
         headers: { "Content-Type": "application/json" },

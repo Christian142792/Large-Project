@@ -8,7 +8,7 @@ function SignUp(){
     const[firstName, setFirstName] = useState('');
     const[email, setEmail] = useState('');
     const[message, setMessage] = useState('');
-    const defaultImage = "https://ohtheplacesyoullgo.space/images/Beach.jpg";
+    const defaultImage = "";
 
     async function doSignup(event: React.FormEvent): Promise<void> {
         event.preventDefault();
@@ -42,7 +42,7 @@ function SignUp(){
         const js = JSON.stringify(obj);
 
         try{
-            const response = await fetch('https://ohtheplacesyoullgo.space/api/signup', {
+            const response = await fetch('/api/signup', {
                 method: 'POST',
                 body: js,
                 headers: {'Content-Type': 'application/json'}
@@ -54,7 +54,6 @@ function SignUp(){
                 setMessage(res.error);
             }else {
                 setMessage('Signup Successful! Please log in.');
-                var ret = await doBackgroundAPIs(username);
                 window.location.href = '/login';
             }
         }catch (error: any) {
@@ -62,42 +61,6 @@ function SignUp(){
         }
     };
 
-    async function doBackgroundAPIs(_username: string) : Promise<void>{
-        const user = {
-            username: _username
-        }
-        const response1 = await fetch('https://ohtheplacesyoullgo.space/api/addusertocountries', {
-            method: 'POST',
-            body: JSON.stringify(user),
-            headers: {'Content-Type': 'application/json'}
-        });
-
-        const res1 = JSON.parse(await response1.text());
-
-        const response2 = await fetch('https://ohtheplacesyoullgo.space/api/addemptytravelstats', {
-            method: 'POST',
-            body: JSON.stringify(user),
-            headers: {'Content-Type': 'application/json'}
-        });
-
-        const res2 = JSON.parse(await response2.text());
-
-        const response3 = await fetch('https://ohtheplacesyoullgo.space/api/createemptygoing', {
-            method: 'POST',
-            body: JSON.stringify(user),
-            headers: {'Content-Type': 'application/json'}
-        });
-
-        const res3 = JSON.parse(await response3.text());
-
-        const response4 = await fetch('https://ohtheplacesyoullgo.space/api/createtraveltools', {
-            method: 'POST',
-            body: JSON.stringify(user),
-            headers: {'Content-Type': 'application/json'}
-        });
-
-        const res4 = JSON.parse(await response4.text());
-    }
 
     return(
         <div className="signupContainer">

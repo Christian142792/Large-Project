@@ -38,19 +38,6 @@ export function getImageString(imageFile: File): Promise<string> {
     });
 }
 
-export async function uploadImage(_image: string) : Promise<string> {
-    var image = {
-        image: _image
-    };
-    const response = await fetch('https://ohtheplacesyoullgo.space/api/upload', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(image),
-    });
-
-    const res = JSON.parse(await response.text());
-
-    return "https://ohtheplacesyoullgo.space/images/" + res.filename;
+export async function uploadImage(_image: string): Promise<string> {
+    return _image;
 }

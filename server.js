@@ -1,540 +1,138 @@
 require('dotenv').config();
 
-//MONGOOSE IS USED HERE TO TROUBLESHOOT LOCAL CONNECTIONS TO MONGODB - John
-const mongoose = require('mongoose');
-console.log("🔄 Connecting to MongoDB...");
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch((err) => console.error("❌ MongoDB connection error:", err));
-//MONGOOSE IS USED HERE TO TROUBLESHOOT LOCAL CONNECTIONS TO MONGODB - John.
-
-
-
 const express = require('express');
-const bodyParser = require('body-parser');
 const path = require('path');
-const crypto = require('crypto');
-const cors = require('cors');
-const { exec } = require('child_process');
-const fs = require('fs');
+const { MongoClient } = require('mongodb');
+const bcrypt = require('bcryptjs');
+const cookieSession = require('cookie-session');
+
 const app = express();
+const port = process.env.PORT || 5000;
+const mongoUri = process.env.MONGO_URI;
 
-const GITHUB_SECRET = process.env.GITHUB_SECRET;
+if (!mongoUri) {
+  console.error('MONGO_URI is required.');
+  process.exit(1);
+}
 
-const MongoClient = require('mongodb').MongoClient;
-const url = process.env.MONGO_URI;
-const client = new MongoClient(url);
-client.connect();
- 
+const client = new MongoClient(mongoUri);
+let db;
+
 app.use(express.json({ limit: '10mb' }));
-app.use('/images', express.static(path.join(__dirname, 'frontend', 'public', 'images'))); 
+app.use(cookieSession({
+  name: 'travel_session',
+  keys: [process.env.SESSION_SECRET || 'change-me-in-production'],
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production',
+  maxAge: 1000 * 60 * 60 * 24 * 7,
+}));
 
-app.use(cors());
-app.use('/webhook', express.raw({ type: 'application/json' }));
-app.use(bodyParser.json());
+function requireAuth(req, res, next) {
+  if (!req.session || !req.session.username) {
+    return res.status(401).json({ status: 'Unauthorized' });
+  }
+  next();
+}
 
-app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader(
-        'Access-Control-Allow-Headers',
-        'Origin, X-Requested-With, Content-Type, Accept, Authorization'
-    );
-    res.setHeader(
-        'Access-Control-Allow-Methods',
-        'GET, POST, PATCH, DELETE, OPTIONS'
-    );
-    next();
+function usernameFromSession(req) {
+  return req.session.username;
+}
+
+async function initUserData(username) {
+  await Promise.all([
+    db.collection('Countries').updateOne({ Username: username }, { $setOnInsert: { Countries: [] } }, { upsert: true }),
+    db.collection('TravelStats').updateOne({ Username: username }, { $setOnInsert: { Continents: 0, Countries: 0, States: 0, Megacities: 0 } }, { upsert: true }),
+    db.collection('WhereImGoing').updateOne({ Username: username }, { $setOnInsert: { Trips: [] } }, { upsert: true }),
+    db.collection('TravelTools').updateOne({ Username: username }, { $setOnInsert: { UpcomingFlights: [], PackingList: [{ name: 'General Packing', list: [] }] } }, { upsert: true }),
+  ]);
+}
+
+app.post('/api/signup', async (req, res) => {
+  const { username, password, firstName, email, profileimage } = req.body;
+  if (!username || !password || !firstName || !email) return res.status(400).json({ status: 'Missing required fields' });
+  const existing = await db.collection('Users').findOne({ $or: [{ Username: username }, { Email: email }] });
+  if (existing) return res.status(409).json({ status: 'User already exists' });
+  const passwordHash = await bcrypt.hash(password, 12);
+  await db.collection('Users').insertOne({ Username: username, PasswordHash: passwordHash, FirstName: firstName, Email: email, ProfileImage: profileimage || '' });
+  await initUserData(username);
+  res.status(201).json({ status: 'Success' });
 });
 
-app.post('/api/login', async (req, res, next) => {
-    // incoming: login, password
-    // outgoing: id, firstName, lastName, error
-    const { username, password } = req.body;
-    const db = client.db();
-    const results = await
-        db.collection('Users').find({ Username: username, Password: password }).toArray();
-    var fn = '';
-    var em = '';
-    var un = '';
-    var pi = '';
-    var status = 'Incorrect Username or Password'
-    if (results.length > 0) {
-        fn = results[0].FirstName;
-        em = results[0].Email;
-        un = results[0].Username;
-        pi = results[0].ProfileImage;
-        status = 'Success';
-    }
-    
-    var ret = { firstName: fn, username: un, email: em, profileimage: pi, status: status };
-    res.status(200).json(ret);
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body;
+  const user = await db.collection('Users').findOne({ Username: username });
+  if (!user) return res.status(401).json({ firstName: '', username: '', email: '', profileimage: '', status: 'Incorrect Username or Password' });
+  let valid = false;
+  if (user.PasswordHash) valid = await bcrypt.compare(password, user.PasswordHash);
+  else if (user.Password && user.Password === password) {
+    valid = true;
+    await db.collection('Users').updateOne({ _id: user._id }, { $set: { PasswordHash: await bcrypt.hash(password, 12) }, $unset: { Password: '' } });
+  }
+  if (!valid) return res.status(401).json({ firstName: '', username: '', email: '', profileimage: '', status: 'Incorrect Username or Password' });
+  req.session.username = user.Username;
+  res.json({ firstName: user.FirstName, username: user.Username, email: user.Email, profileimage: user.ProfileImage || '', status: 'Success' });
 });
 
-app.post('/api/signup', async(req, res, next) => {
-    // incoming: login,
-    var status = 'Failed to sign up';
-    const { username, password, firstName, email, profileimage} = req.body;
-    const newUser = {
-        Username: username,
-        Password: password,
-        FirstName: firstName,
-        Email: email,
-        ProfileImage: profileimage
-    }
-    try {
-        const db = client.db();
-        const user = await db.collection('Users').find({$or: [{Username: username}, {Email: email}]}).toArray();
-        if (user.length > 0) {
-            status = "User already exists";
-            var ret = {status: status};
-            return res.status(409).json(ret);
-        }
-        const result = await db.collection('Users').insertOne(newUser);
-        if (result.acknowledged) {
-            status = "Success";
-        }
-    }
-    catch (e) {
-        error = e.toString();
-    }
-    var ret = { status: status };
-    res.status(200).json(ret);
-
+app.post('/api/logout', (req, res) => { req.session = null; res.json({ status: 'Success' }); });
+app.get('/api/session', requireAuth, async (req, res) => {
+  const user = await db.collection('Users').findOne({ Username: usernameFromSession(req) });
+  res.json({ firstName: user.FirstName, username: user.Username, email: user.Email, profileimage: user.ProfileImage || '', status: 'Success' });
 });
 
-app.delete('/api/deleteuser/:username', async (req, res, next) => {
-    // incoming: login, password
-    // outgoing: id, firstName, lastName, error
-    const username = req.params.username;
-    const db = client.db();
-    const results = await
-        db.collection('Users').deleteOne({ Username: username })
-    
-    var status = 'Failed to delete'
-    if (results.acknowledged) {
-        status = 'Success';
-    }
-    
-    var ret = { status: status };
-    res.status(200).json(ret);
+app.delete('/api/deleteuser/:username', requireAuth, async (req, res) => {
+  const username = usernameFromSession(req);
+  await Promise.all(['Users','Countries','TravelStats','WhereImGoing','TravelTools'].map(c => db.collection(c).deleteMany({ Username: username })));
+  req.session = null;
+  res.json({ status: 'Success' });
 });
 
-app.get('/api/getcountries/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const db = client.db();
-    const results = await
-    db.collection('Countries').find({ Username:username }).toArray();
-    var countries = []
-    var status = "Failed to get countries"
-    if (results.length > 0) {
-        countries = results[0].Countries;
-        status = "Success";
-    }
-    var ret = {countries: countries, status: status};
-    res.status(200).json(ret);
+app.get('/api/getcountries/:username', requireAuth, async (req,res) => {
+  const doc = await db.collection('Countries').findOne({ Username: usernameFromSession(req) });
+  res.json({ countries: doc?.Countries || [], status: 'Success' });
+});
+app.put('/api/addcountry/:username', requireAuth, async (req,res) => { await db.collection('Countries').updateOne({Username:usernameFromSession(req)},{$addToSet:{Countries:req.body.country}},{upsert:true}); res.json({status:'Success'}); });
+app.put('/api/deletecountry/:username', requireAuth, async (req,res) => { await db.collection('Countries').updateOne({Username:usernameFromSession(req)},{$pull:{Countries:req.body.country}}); res.json({status:'Success'}); });
+app.post('/api/addusertocountries', requireAuth, async (req,res) => { await initUserData(usernameFromSession(req)); res.json({status:'Success'}); });
+
+app.get('/api/gettravelstats/:username', requireAuth, async (req,res) => {
+  const d = await db.collection('TravelStats').findOne({Username:usernameFromSession(req)}) || {};
+  res.json({continents:d.Continents||0,countries:d.Countries||0,states:d.States||0,megacities:d.Megacities||0,status:'Success'});
+});
+app.post('/api/addemptytravelstats', requireAuth, async (req,res) => { await initUserData(usernameFromSession(req)); res.json({status:'Success'}); });
+app.put('/api/addtravelstat/:username', requireAuth, async (req,res) => { const allowed=['Continents','Countries','States','Megacities']; if(!allowed.includes(req.body.statname)) return res.status(400).json({status:'Invalid stat'}); await db.collection('TravelStats').updateOne({Username:usernameFromSession(req)},{$inc:{[req.body.statname]:Number(req.body.amount)||0}},{upsert:true}); res.json({status:'Success'}); });
+
+app.put('/api/updateprofileimage/:username', requireAuth, async (req,res) => { await db.collection('Users').updateOne({Username:usernameFromSession(req)},{$set:{ProfileImage:req.body.profileimage||''}}); res.json({status:'Success'}); });
+app.post('/api/upload', requireAuth, (req,res) => { const image=req.body.image; if(typeof image!=='string'||!image.startsWith('data:image/')) return res.status(400).json({filename:'',status:'Invalid image format'}); if(image.length>8_000_000) return res.status(413).json({filename:'',status:'Image too large'}); res.json({filename:image,status:'Success'}); });
+
+app.post('/api/createemptygoing', requireAuth, async (req,res)=>{ await initUserData(usernameFromSession(req)); res.json({status:'Success'}); });
+app.delete('/api/deletetrip/:username', requireAuth, async (req,res)=>{ const {destination,date}=req.body; await db.collection('WhereImGoing').updateOne({Username:usernameFromSession(req)},{$pull:{Trips:{Destination:destination,Date:date}}}); res.json({status:'Success'}); });
+app.put('/api/addtrip/:username', requireAuth, async (req,res)=>{ const {destination,date,plans,image}=req.body; await db.collection('WhereImGoing').updateOne({Username:usernameFromSession(req)},{$push:{Trips:{Destination:destination,Date:date,Plans:plans,Image:image}}},{upsert:true}); res.json({status:'Success'}); });
+app.put('/api/edittrip/:username', requireAuth, async (req,res)=>{ const {destination,date,newdate,newplans,newimage}=req.body; await db.collection('WhereImGoing').updateOne({Username:usernameFromSession(req)},{$pull:{Trips:{Destination:destination,Date:date}}}); await db.collection('WhereImGoing').updateOne({Username:usernameFromSession(req)},{$push:{Trips:{Destination:destination,Date:newdate,Plans:newplans,Image:newimage}}}); res.json({status:'Success'}); });
+app.get('/api/gettrips/:username', requireAuth, async (req,res)=>{ const d=await db.collection('WhereImGoing').findOne({Username:usernameFromSession(req)}); res.json({trips:d?.Trips||[],status:'Success'}); });
+
+app.post('/api/createtraveltools', requireAuth, async (req,res)=>{ await initUserData(usernameFromSession(req)); res.json({status:'Success'}); });
+app.put('/api/addpackinglist/:username', requireAuth, async (req,res)=>{ await db.collection('TravelTools').updateOne({Username:usernameFromSession(req)},{$push:{PackingList:{name:req.body.name,list:[]}}},{upsert:true}); res.json({status:'Success'}); });
+app.put('/api/addtopacking/:username', requireAuth, async (req,res)=>{ await db.collection('TravelTools').updateOne({Username:usernameFromSession(req),'PackingList.name':req.body.name},{$set:{'PackingList.$.list':req.body.packinglist}}); res.json({status:'Success'}); });
+app.put('/api/getlist/:username', requireAuth, async (req,res)=>{ const d=await db.collection('TravelTools').findOne({Username:usernameFromSession(req)}); const lists=d?.PackingList||[]; const list=req.body.name ? (lists.find(p=>p.name===req.body.name)?.list||[]) : lists; res.json({list,status:'Success'}); });
+app.put('/api/addflight/:username', requireAuth, async (req,res)=>{ const {port1,port1code,port1time,port2,port2code,port2time,boardingday,image}=req.body; const flight={depart:port1,departcode:port1code,departtime:port1time,arrive:port2,arrivecode:port2code,arrivetime:port2time,boardingday,image}; await db.collection('TravelTools').updateOne({Username:usernameFromSession(req)},{$push:{UpcomingFlights:flight}},{upsert:true}); res.json({status:'Success'}); });
+app.get('/api/getflights/:username', requireAuth, async (req,res)=>{ const d=await db.collection('TravelTools').findOne({Username:usernameFromSession(req)}); res.json({flights:d?.UpcomingFlights||[],status:'Success'}); });
+app.put('/api/deleteflight/:username', requireAuth, async (req,res)=>{ await db.collection('TravelTools').updateOne({Username:usernameFromSession(req)},{$pull:{UpcomingFlights:{departcode:req.body.port1code,arrivecode:req.body.port2code}}}); res.json({status:'Success'}); });
+
+app.get('/api/health', (req,res)=>res.json({status:'ok'}));
+
+const distPath = path.join(__dirname, 'frontend', 'dist');
+app.use(express.static(distPath));
+app.get('*', (req,res,next) => {
+  if (req.path.startsWith('/api/')) return next();
+  res.sendFile(path.join(distPath, 'index.html'));
 });
 
-app.put('/api/addcountry/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const { country } = req.body;
-    const db = client.db();
-    const results = await
-    db.collection('Countries').updateOne({ Username:username }, {$push: {Countries: country}});
-    var countries = []
-    var status = "Failed to add";
-    if (results.acknowledged) {
-        status = "Success"
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.put('/api/deletecountry/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const { country } = req.body;
-    const db = client.db();
-    const results = await
-    db.collection('Countries').updateOne({ Username:username }, {$pull: {Countries: country}});
-    var status = "Failed to felete";
-    if (results.acknowledged) {
-        status = "Success";
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.post('/api/addusertocountries', async (req, res, next) => {
-    const { username } = req.body;
-    const db = client.db();
-    const newUser = {
-        Username: username,
-        Countries: []
-    };
-    const results = await
-    db.collection('Countries').insertOne(newUser);
-    var status = "Failed to add new user to Countries"
-    if (results.acknowledged){
-        status = "Success";
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.get('/api/gettravelstats/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const db = client.db();
-    const results = await
-    db.collection('TravelStats').find({ Username:username }).toArray();
-    var status = "Failed to get travel stats"
-    var continents = 0;
-    var countries = 0;
-    var states = 0;
-    var megacities = 0;
-    if (results.length > 0){
-        continents = results[0].Continents;
-        countries = results[0].Countries;
-        states = results[0].States;
-        megacities = results[0].Megacities;
-        status = "Success";
-    }
-    var ret = {
-        continents: continents, 
-        countries: countries, 
-        states: states, 
-        megacities: megacities, 
-        status: status
-    };
-    res.status(200).json(ret);
-});
-
-app.post('/api/addemptytravelstats', async (req, res, next) => {
-    const { username } = req.body;
-    var stats = {
-        Username: username,
-        Continents: 0,
-        Countries: 0,
-        States: 0,
-        Megacities: 0
-    };
-    const db = client.db();
-    const results = await
-    db.collection('TravelStats').insertOne(stats);
-    var status = "Failed to get travel stats";
-    if (results.acknowledged) {
-        status = "Success";
-    }
-    
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.put('/api/addtravelstat/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const { statname, amount } = req.body;
-    const db = client.db();
-    const results = await db.collection('TravelStats').updateOne({Username:username}, {$inc: {[statname]: amount}});
-    var status = "Failed to update travel stats";
-    if (results.acknowledged) {
-        status = "Success";
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.put('/api/updateprofileimage/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const { profileimage } = req.body;
-    const db = client.db();
-    const results = await db.collection('Users').updateOne({Username:username}, {$set: {ProfileImage:profileimage}});
-    var status = "Failed to update profile image";
-    if (results.acknowledged) {
-        status = "Success";
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.post('/api/upload', (req, res) => {
-    const {image} = req.body;
-    var ret;
-
-    const matches = image.match(/^data:(.+);base64,(.+)$/);
-    if (!matches) {
-        ret = {filename: "", status:"Invalid image format"}
-        return res.status(400).json(ret);
-    }
-
-    const ext = matches[1].split('/')[1];
-    const data = matches[2];
-    const buffer = Buffer.from(data, 'base64');
-
-    const fileName = `image_${Date.now()}.${ext}`;
-
-    const filePath = path.join(__dirname, 'frontend', 'public', 'images', fileName);
-    const dir = path.join(__dirname, 'frontend', 'public', 'images');
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-    }
-    console.log(filePath);
-
-    fs.writeFile(filePath, buffer, (err) => {
-        if (err) {
-            console.log(err);
-            ret = {filepath: filePath, filename: fileName, directory: dir, error: err, status:"AHHHH"};
-            return res.status(400).json(ret);
-        }
-        ret = {filename: fileName, status: "Success"};
-        return res.status(200).json(ret);
-    });
-
-});
-
-app.post('/api/createemptygoing', async (req, res, next) => {
-    const { username } = req.body;
-    const userDocument = {
-        Username: username,
-        Trips: []
-    };
-    const db = client.db();
-    const results = await db.collection('WhereImGoing').insertOne(userDocument);
-    var status = "Failed to add user";
-    if (results.acknowledged) {
-        status = "Success";
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.delete('/api/deletetrip/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const { destination, date } = req.body;
-
-    if (!destination || !date){
-        return res.status(400).json({error: "Destination and date are required"});
-    }
-
-    const db = client.db();
-    const results = await db.collection('WhereImGoing').updateOne({Username: username}, {$pull: {Trips: {Destination: destination, Date: date}}});
-
-    var status = "Failed to delete trip";
-    if (results.acknowledged) {
-        status = "Success";
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.put('/api/addtrip/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const { destination, date, plans, image } = req.body;
-    const tripData = {
-        Destination: destination,
-        Date: date,
-        Plans: plans,
-        Image: image
-    };
-    const db = client.db();
-    const results = await db.collection('WhereImGoing').updateOne({Username: username}, {$push: {Trips: tripData}});
-    var status = "Failed to add trip";
-    if (results.acknowledged) {
-        status = "Success";
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.put('/api/edittrip/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const { destination, date, newdate, newplans, newimage } = req.body;
-    const newTripData = {
-        Destination: destination,
-        Date: newdate,
-        Plans: newplans,
-        Image: newimage
-    };
-    const db = client.db();
-    const results1 = await db.collection('WhereImGoing').updateOne({Username: username}, {$pull: {Trips: {Destination: destination, Date: date}}});
-    const results2 = await db.collection('WhereImGoing').updateOne({Username:username}, {$push: {Trips: newTripData}});
-    var status = "Failed to edit trip";
-    if (results2.acknowledged) {
-        status = "Success";
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.get('/api/gettrips/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const db = client.db();
-
-    const user = await db.collection('WhereImGoing').find({Username: username}).toArray();
-    if (user.length == 0) {
-        status = "Incorrect Username";
-        var ret = {status: status};
-        return res.status(409).json(ret);
-    }
-
-    var trips = []
-    var status = "Failed to get trips"
-    if (user.length > 0) {
-        trips = user[0].Trips;
-        status = "Success";
-    }
-    var ret = {trips: trips, status: status};
-    res.status(200).json(ret);
-});
-
-app.post('/api/createtraveltools', async (req, res, next) => {
-    const { username } = req.body;
-    const userDocument = {
-        Username: username,
-        UpcomingFlights: [],
-        PackingList: [{
-            name: "General Packing",
-            list: []
-        }]
-    };
-    const db = client.db();
-    const results = await db.collection('TravelTools').insertOne(userDocument);
-    var status = "Failed to add user";
-    if (results.acknowledged) {
-        status = "Success";
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.put('/api/addpackinglist/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const { name } = req.body
-    const packinglist = {
-        name: name,
-        list: []
-    }
-    const db = client.db();
-    const results = await db.collection('TravelTools').updateOne({Username:username}, {$push: {PackingList:packinglist}});
-    var status = "Failed to add list";
-    if (results.acknowledged) {
-        status = "Success";
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.put('/api/addtopacking/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const { name, packinglist } = req.body
-    const db = client.db();
-    const results = await db.collection('TravelTools').updateOne({Username:username, "PackingList.name": name}, {$set: {"PackingList.$.list":packinglist}});
-    var status = "Failed to add list";
-    if (results.acknowledged) {
-        status = "Success";
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.put('/api/getlist/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const { name } = req.body;
-    const db = client.db();
-    var list = [];
-    var status = "Failed to get list";
-    if (name === "") {
-        const results = await db.collection('TravelTools')
-        .find({Username:username}, { projection: { PackingList: 1, _id: 0 } }).toArray();
-        if (results?.length > 0) {
-            status = "Success";
-            list = results[0].PackingList;
-        }
-    }else {
-        const results = await db.collection('TravelTools')
-        .find({Username:username, "PackingList.name":name}, { projection: { PackingList: 1, _id: 0 } }).toArray();
-        if (results?.length > 0) {
-            status = "Success";
-            list = results?.[0]?.PackingList?.find(p => p.name === name)?.list || [];
-        }
-    }
-    var ret = {list: list, status: status};
-    res.status(200).json(ret);
-});
-
-app.put('/api/addflight/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const { port1, port1code, port1time, port2, port2code, port2time, boardingday, image } = req.body
-
-    const flightdata = {
-        depart: port1,
-        departcode: port1code,
-        departtime: port1time,
-        arrive: port2,
-        arrivecode: port2code,
-        arrivetime: port2time,
-        boardingday: boardingday,
-        image: image
-    }
-    const db = client.db();
-    const results = await db.collection('TravelTools').updateOne({Username:username}, {$push: {UpcomingFlights: flightdata}});
-    var status = "Failed to add flight";
-    if (results.acknowledged) {
-        status = "Success";
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-app.get('/api/getflights/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const db = client.db();
-    const results = await db.collection('TravelTools').find({Username:username}).toArray();
-    var status = "Failed to get flights";
-    var flights = [];
-    if (results.length > 0) {
-        flights = results[0].UpcomingFlights;
-        status = "Success";
-    }
-    var ret = {flights: flights, status: status};
-    res.status(200).json(ret);
-});
-
-app.put('/api/deleteflight/:username', async (req, res, next) => {
-    const username = req.params.username;
-    const { port1code, port2code } = req.body
-
-    const db = client.db();
-    const results = await db.collection('TravelTools')
-    .updateOne({Username:username}, { $pull: { UpcomingFlights: { departcode: port1code, arrivecode: port2code } } });
-    var status = "Failed to delete flight";
-    if (results.acknowledged) {
-        status = "Success";
-    }
-    var ret = {status: status};
-    res.status(200).json(ret);
-});
-
-
-app.post('/webhook', express.raw({ type: '*/*' }),  (req, res) => {
-    console.log('🚨 Received webhook POST request!');
-    exec('pm2 restart script', (err, stdout, stderr) => {
-        if (err) {
-            console.error(`Deployment error: ${err.message}`);
-            return res.status(500).send('Deployment failed');
-        }
-        console.log(`Deployment triggered:\n${stdout}`);
-        res.status(200).send('Deployment triggered');
-    });
-    return;
-    // For verifying the webhook. Temporarily removed validation.
-    const signature = req.headers['x-hub-signature-256'];
-    const hmac = crypto.createHmac('sha256', GITHUB_SECRET);
-    const digest = 'sha256=' + hmac.update(req.body).digest('hex');
-
-    if (!signature || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(digest))) {
-        console.warn('Invalid GitHub webhook signature.');
-        return res.status(401).send('Invalid signature');
-    }
-    console.log('GitHub webhook verified.');
-    
-});
-
-app.listen(5000); // start Node + Express server on port 3000
+async function start() {
+  await client.connect();
+  db = client.db();
+  await db.collection('Users').createIndex({Username:1},{unique:true});
+  await db.collection('Users').createIndex({Email:1},{unique:true});
+  app.listen(port, '0.0.0.0', () => console.log(`Server listening on ${port}`));
+}
+start().catch(err => { console.error(err); process.exit(1); });
