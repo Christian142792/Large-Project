@@ -343,6 +343,7 @@ export default function TravelToolsPage({
   }, [userData]);
 
   const openModal = async (name: string) => {
+    if (!userData) return;
     try {
       const response = await fetch(`/api/getlist/${userData.username}`, {
         method: "PUT",

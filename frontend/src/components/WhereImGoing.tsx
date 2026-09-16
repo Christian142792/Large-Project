@@ -17,26 +17,11 @@ interface PlanCategory {
 
 
 // --- Interfaces ---
-interface PlanItem {
-  title: string;
-  description: string;
-  image: string;
-}
-interface PlanCategory {
-  number: number;
-  [key: string]: any;
-}
 interface Trip {
   Destination: string;
-  Date:        string;
-  Image:       string;
-  Plans: {
-    Activities:  PlanCategory;
-    Restaurants: PlanCategory;
-    Places:      PlanCategory;
-    Hotels:      PlanCategory;
-
-  };
+  Date: string;
+  Image: string;
+  Plans: Record<string, PlanCategory>;
 }
 interface UserData {
   name: string;
@@ -121,14 +106,8 @@ const WhereImGoing: React.FC = () => {
     if (resp.status === 409) return [];
     if (!resp.ok) {
       throw new Error(body.message || `getTrips failed (${resp.status})`);
-
     }
-
-    async function handleTripEditSubmit(event: React.FormEvent): Promise<void> {
-        event.preventDefault();
-        await updateTripDetails();
-    }
-
+    if (Array.isArray(body.trips)) return body.trips;
     throw new Error(body.message || "getTrips returned bad payload");
   }
 
