@@ -102,7 +102,24 @@ app.get('/api/gettravelstats/:username', requireAuth, async (req,res) => {
 app.post('/api/addemptytravelstats', requireAuth, async (req,res) => { await initUserData(usernameFromSession(req)); res.json({status:'Success'}); });
 app.put('/api/addtravelstat/:username', requireAuth, async (req,res) => { const allowed=['Continents','Countries','States','Megacities']; if(!allowed.includes(req.body.statname)) return res.status(400).json({status:'Invalid stat'}); await db.collection('TravelStats').updateOne({Username:usernameFromSession(req)},{$inc:{[req.body.statname]:Number(req.body.amount)||0}},{upsert:true}); res.json({status:'Success'}); });
 
-app.put('/api/updateprofileimage/:username', requireAuth, async (req,res) => { await db.collection('Users').updateOne({Username:usernameFromSession(req)},{$set:{ProfileImage:req.body.profileimage||''}}); res.json({status:'Success'}); });
+app.put('/api/updateprofileimage/:username', requireAuth, async (req,res) => {
+  const profileimage = req.body.profileimage;
+  if (typeof profileimage !== 'string' || !profileimage.startsWith('data:image/')) {
+    return res.status(400).json({ status: 'Invalid image format' });
+  }
+  // Keep profile images small enough for reliable MongoDB storage and fast page loads.
+  if (profileimage.length > 2_500_000) {
+    return res.status(413).json({ status: 'Profile image is too large' });
+  }
+  const result = await db.collection('Users').updateOne(
+    { Username: usernameFromSession(req) },
+    { $set: { ProfileImage: profileimage } }
+  );
+  if (!result.matchedCount) {
+    return res.status(404).json({ status: 'User not found' });
+  }
+  res.json({ status: 'Success', profileimage });
+});
 app.post('/api/upload', requireAuth, (req,res) => { const image=req.body.image; if(typeof image!=='string'||!image.startsWith('data:image/')) return res.status(400).json({filename:'',status:'Invalid image format'}); if(image.length>8_000_000) return res.status(413).json({filename:'',status:'Image too large'}); res.json({filename:image,status:'Success'}); });
 
 app.post('/api/createemptygoing', requireAuth, async (req,res)=>{ await initUserData(usernameFromSession(req)); res.json({status:'Success'}); });
