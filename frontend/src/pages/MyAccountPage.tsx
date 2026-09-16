@@ -3,7 +3,13 @@ import MapExplorer from "../components/MapExplorer";
 import "../css/AccountPage.css";
 
 const MyAccountPage: React.FC = () => {
-  const userName = localStorage.getItem("username") || "guest";
+  let userName = "guest";
+  try {
+    const rawUser = localStorage.getItem("user_data");
+    if (rawUser) userName = JSON.parse(rawUser).username || "guest";
+  } catch {
+    userName = "guest";
+  }
 
   // track both stats
   const [countryCount, setCountryCount] = React.useState(0);

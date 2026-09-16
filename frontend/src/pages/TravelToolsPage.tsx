@@ -366,11 +366,11 @@ export default function TravelToolsPage({
   };
 
   const addPackingItem = () => {
-    setPackingItems([...packingItems, ""]);
+    setPackingItems(prev => [...prev, ""]);
   };
 
   const removePackingItem = (index: number) => {
-    setPackingItems(packingItems.filter((_, i) => i !== index));
+    setPackingItems(prev => prev.filter((_, i) => i !== index));
   };
 
   const openModal = async (name: string) => {
@@ -468,6 +468,25 @@ export default function TravelToolsPage({
       }
     } else {
       console.error("Destination name cannot be empty.");
+    }
+  };
+
+  const removeDestination = async (name: string) => {
+    if (!username) return;
+    try {
+      const response = await fetch(`/api/deletepackinglist/${encodeURIComponent(username)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.status !== "Success") {
+        throw new Error(data.status || "Failed to remove packing list");
+      }
+      setDestinations(prev => prev.filter(destination => destination.name !== name));
+      if (selectedPackingList === name) closeModal();
+    } catch (error) {
+      console.error("Error removing packing list:", error);
     }
   };
 
@@ -687,6 +706,17 @@ export default function TravelToolsPage({
                     onClick={() => openModal(d.name)}
                   >
                     <div className="packing-list-name">{d.name}</div>
+                    <button
+                      type="button"
+                      className="packing-list-delete"
+                      aria-label={`Remove ${d.name} packing list`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        removeDestination(d.name);
+                      }}
+                    >
+                      ×
+                    </button>
                   </div>
                 ))}
                 <button

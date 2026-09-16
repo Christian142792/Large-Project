@@ -548,3 +548,48 @@ button:hover {
   background-color: #0056b3;
   color: white;
 }
+
+
+/* Portfolio deployment fixes: keep packing-list controls usable despite
+   the legacy global .modal-content input/button width rule. */
+.packing-item {
+  gap: 0.5rem;
+}
+
+.packing-item input {
+  display: block;
+  width: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+.packing-item button {
+  display: inline-block;
+  width: auto;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.packing-list-card {
+  position: relative;
+}
+
+.packing-list-delete {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  width: 1.75rem !important;
+  height: 1.75rem;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  color: #dc2626;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.packing-list-delete:hover {
+  background: #fee2e2;
+}
